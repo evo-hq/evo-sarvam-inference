@@ -13,6 +13,7 @@
 #   bash scripts/run_evo_jarvislabs.sh smoke         # DRY RUN: bench x3 (noise) + gate sanity, no agent
 #   bash scripts/run_evo_jarvislabs.sh clocks        # lock GPU clocks on all GPUs (cuts benchmark noise)
 #   bash scripts/run_evo_jarvislabs.sh run           # launch headless agent: /evo:discover then /evo:optimize
+#   bash scripts/run_evo_jarvislabs.sh notify        # always-on Telegram/WhatsApp alert on each new best (tmux, reads .env)
 #   bash scripts/run_evo_jarvislabs.sh dashboard     # publish a PUBLIC dashboard URL via cloudflared (anyone can watch)
 set -euo pipefail
 
@@ -169,6 +170,48 @@ dashboard() {
   echo "(not ready; check $WORK/cf.log)"
 }
 
+notify() {
+  # Always-on notifier ON THE BOX (survives your laptop sleeping). Reads
+  # TELEGRAM_*/WHATSAPP_* from .env, polls evo locally, messages on each new best.
+  local INT="${1:-20}"
+  cat > "$WORK/notify_loop.sh" <<'INNER'
+#!/usr/bin/env bash
+cd /home/ubuntu/evo-sarvam-inference
+set -a; [ -f .env ] && . ./.env; set +a
+export PATH="$HOME/.local/bin:$PATH"
+INT="${NOTIFY_INT:-20}"
+send() {
+  [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ] && \
+    curl -s -m 10 -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+      --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" --data-urlencode "text=$1" >/dev/null
+  [ -n "${WHATSAPP_PHONE:-}" ] && [ -n "${CALLMEBOT_APIKEY:-}" ] && \
+    curl -s -m 12 -G "https://api.callmebot.com/whatsapp.php" \
+      --data-urlencode "phone=${WHATSAPP_PHONE}" --data-urlencode "text=$1" \
+      --data-urlencode "apikey=${CALLMEBOT_APIKEY}" >/dev/null
+}
+send "evo: watching Sarvam-30B (box, poll ${INT}s)"
+last=""
+while true; do
+  out=$(cd /home/ubuntu/vllm && evo status 2>/dev/null)
+  best=$(printf '%s' "$out" | grep -oE 'best=[0-9.]+' | cut -d= -f2)
+  exps=$(printf '%s' "$out" | grep -oE 'committed=[0-9]+' | cut -d= -f2)
+  if [ -n "$best" ] && [ "$best" != "None" ]; then
+    if [ -z "$last" ]; then last="$best"
+    elif awk "BEGIN{exit !($best>$last)}"; then
+      d=$(awk "BEGIN{printf \"%.2f\", ($best-$last)/$last*100}")
+      send "evo: Sarvam-30B improved -> ${best} tok/s (+${d}%, committed=$exps)"
+      last="$best"
+    fi
+  fi
+  sleep "$INT"
+done
+INNER
+  chmod +x "$WORK/notify_loop.sh"
+  tmux kill-session -t notify 2>/dev/null || true
+  tmux new -d -s notify "NOTIFY_INT=$INT bash $WORK/notify_loop.sh > $WORK/notify.log 2>&1"
+  echo "box-side notifier in tmux 'notify' (set TELEGRAM_*/WHATSAPP_* in .env). log: $WORK/notify.log"
+}
+
 cmd="${1:-bootstrap}"; shift || true
 case "$cmd" in
   bootstrap) bootstrap "$@" ;;
@@ -177,6 +220,7 @@ case "$cmd" in
   smoke)     smoke "$@" ;;
   clocks)    clocks "$@" ;;
   run)       run "$@" ;;
+  notify)    notify "$@" ;;
   dashboard) dashboard "$@" ;;
-  *) echo "usage: $0 {bootstrap|evo-setup|reference|smoke|clocks|run|dashboard}" >&2; exit 1 ;;
+  *) echo "usage: $0 {bootstrap|evo-setup|reference|smoke|clocks|run|notify|dashboard}" >&2; exit 1 ;;
 esac

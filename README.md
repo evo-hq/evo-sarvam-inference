@@ -53,9 +53,31 @@ tmux attach -t sarvam        # or: tail runs/run_console.log
 jl pause <id> --yes --json   # stop GPU billing, keep /home
 ```
 
+## Monitoring
+
+From your machine (`cd ~/Work/evo-sarvam-inference`):
+
+- `./scripts/monitor.py <ip>` — one window: pinned stats (claude, dashboard, GPUs, best
+  score) on top; the live Claude session **and every workflow subagent** streaming below,
+  tagged `main:`/`sub:`/`wf:` and color-coded.
+- `./scripts/notify.sh <ip> [secs]` — alert only on a **new best** (macOS notification +
+  sound; Telegram/WhatsApp too if configured below).
+- `./scripts/watch_run.sh <ip> [stream|evo|gpu|dash]` — focused views: raw session,
+  `evo tree`, live `nvidia-smi`, or an SSH tunnel to the dashboard.
+
+Public dashboard (anyone, no key): run `bash scripts/run_evo_jarvislabs.sh dashboard` on
+the box; it prints a cloudflared `https://...trycloudflare.com` URL. JarvisLabs VMs
+firewall inbound ports, so `http://<public-ip>:port` never works, the dashboard binds
+localhost and is reachable only via that tunnel (public) or an SSH local-forward (key holder).
+
+Notifications: set `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` (or `WHATSAPP_PHONE`/`CALLMEBOT_APIKEY`)
+in `.env`. `notify.sh` reads them locally; `run_evo_jarvislabs.sh notify` runs the same loop
+on the box in tmux (always-on, survives your laptop sleeping).
+
 ## Status
 
-Skeleton scaffold. The benchmark/gate logic is complete; the box bootstrap and the
-worktree kernel-resolution trick have **not been validated on a GPU box** yet. See
-`docs/plan.md` "Open validation items" before trusting the end-to-end flow. Smoke-test
-one experiment before turning the loop loose.
+Validated end-to-end on H100 (1x dry run + 4x run): vLLM @ PR #33942 builds with
+`VLLM_USE_PRECOMPILED` (no CUDA rebuild), Sarvam-30B loads at FP8, the decode benchmark and
+accuracy gate run, and the worktree kernel-swap (edit Triton, no rebuild) works. The 4x run
+resizes the same box via `jl resume --num-gpus 4` (no re-download). See `docs/plan.md` for the
+metric/gate design and the remaining gotchas.

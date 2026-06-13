@@ -19,6 +19,10 @@ INT="${2:-20}"
 KEY="${JL_SSH_KEY:-$HOME/.ssh/jl_ed25519}"
 SSH=(ssh -i "$KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=12 ubuntu@"$IP")
 
+# Load channel tokens from a local .env if present (env vars still override).
+HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+set -a; [ -f "$HARNESS_DIR/.env" ] && . "$HARNESS_DIR/.env"; set +a
+
 send_alert() {  # title, message
   local title="$1" msg="$2"
   osascript -e "display notification \"$msg\" with title \"$title\" sound name \"Glass\"" 2>/dev/null || true

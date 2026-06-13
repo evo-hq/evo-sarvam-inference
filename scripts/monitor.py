@@ -28,10 +28,14 @@ import sys, os, glob, time
 ROOT = os.path.expanduser("~/.claude/projects")
 pos = {}
 def tag(fn):
-    b = os.path.basename(fn)
-    return ("sub:" + b[6:12]) if b.startswith("agent-") else "main"
+    b = os.path.basename(fn).replace("agent-", "").replace(".jsonl", "")
+    if "/subagents/workflows/" in fn:
+        return "wf:" + b[:6]
+    if "/subagents/" in fn:
+        return "sub:" + b[:6]
+    return "main:" + b[:6]
 while True:
-    for fn in glob.glob(os.path.join(ROOT, "*", "*.jsonl")):
+    for fn in glob.glob(os.path.join(ROOT, "**", "*.jsonl"), recursive=True):
         try:
             st = os.stat(fn)
             if fn not in pos:
