@@ -1,0 +1,16 @@
+{"id": "en_qa", "prompt": "Explain in three sentences why mixture-of-experts models are cheaper to run than dense models of the same parameter count."}
+{"id": "en_summarize", "prompt": "Summarize the plot of a generic detective novel in exactly five sentences."}
+{"id": "hi_qa", "prompt": "भारत में मानसून किस महीने में आता है और यह कृषि के लिए क्यों महत्वपूर्ण है? दो वाक्यों में बताइए।"}
+{"id": "hi_instruct", "prompt": "एक छोटी कहानी लिखिए जिसमें एक किसान और एक नदी हो।"}
+{"id": "ta_qa", "prompt": "தமிழ்நாட்டின் தலைநகரம் எது, அதன் சிறப்பு என்ன என்று இரண்டு வாக்கியங்களில் கூறுங்கள்."}
+{"id": "bn_qa", "prompt": "কলকাতা শহরের তিনটি বিখ্যাত স্থানের নাম লেখো।"}
+{"id": "math_word", "prompt": "A train travels 60 km in the first hour and 90 km in the next hour. What is its average speed over the two hours? Show your reasoning."}
+{"id": "math_arith", "prompt": "Compute 17 * 24 + 13 and explain each step."}
+{"id": "code_py", "prompt": "Write a Python function that returns the nth Fibonacci number iteratively."}
+{"id": "code_sql", "prompt": "Write a SQL query that selects the top 5 customers by total order value from an orders table."}
+{"id": "tool_call", "prompt": "The user asks for the weather in Mumbai tomorrow. Describe which tool you would call and with what arguments."}
+{"id": "reason_logic", "prompt": "If all bloops are razzies and all razzies are lazzies, are all bloops lazzies? Explain."}
+{"id": "long_instruct", "prompt": "List ten distinct uses for a paperclip, each on its own line, with a one-line justification for each."}
+{"id": "translate", "prompt": "Translate to Hindi: 'The market opens at nine in the morning and closes at six in the evening.'"}
+{"id": "classify", "prompt": "Classify the sentiment of this review as positive, negative, or neutral: 'The food was cold but the staff were kind.'"}
+{"id": "factual", "prompt": "Name the largest planet in the solar system and one fact about it."}

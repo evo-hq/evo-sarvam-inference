@@ -1,0 +1,22 @@
+# secrets / local
+.env
+*.local
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# evo workspace (created on the box inside the vLLM clone, never committed here)
+.evo/
+
+# captured baselines + large artifacts (regenerated on the box)
+reference/baseline_gen.json
+reference/baseline_logits.npz
+runs/
+*.log
+*.npz
+
+# os
+.DS_Store
