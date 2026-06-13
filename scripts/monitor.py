@@ -35,10 +35,11 @@ while True:
         try:
             st = os.stat(fn)
             if fn not in pos:
-                # start at end; skip files idle > 3 min (dead sessions)
-                pos[fn] = st.st_size
+                # seed recent context (~8KB) for active files; skip dead sessions
                 if time.time() - st.st_mtime > 180:
+                    pos[fn] = st.st_size
                     continue
+                pos[fn] = max(0, st.st_size - 8000)
             if st.st_size < pos[fn]:
                 pos[fn] = 0
             if st.st_size > pos[fn]:
@@ -88,6 +89,8 @@ def parse(line):
             bt = b.get("type")
             if bt == "text" and b.get("text", "").strip():
                 out.append(("text", clean(b["text"], 400)))
+            elif bt == "thinking" and b.get("thinking", "").strip():
+                out.append(("think", clean(b["thinking"], 220)))
             elif bt == "tool_use":
                 i = b.get("input", {})
                 a = (i.get("command") or i.get("file_path") or i.get("prompt")
@@ -125,13 +128,14 @@ def render():
     head += colorize_header(raw)
     head.append(C["d"] + "-" * min(cols, 150) + C["r"])
     body_rows = max(3, rows - len(head) - 1)
-    kind_col = {"text": C["wht"] + C["b"], "tool": C["yel"], "res": C["d"], "done": C["grn"] + C["b"]}
+    kind_col = {"text": C["wht"] + C["b"], "think": C["d"], "tool": C["yel"],
+                "res": C["d"], "done": C["grn"] + C["b"]}
     body = []
     for tag, (kind, txt) in tail[-body_rows:]:
         scol = subcolor(tag)
         label = "" if tag == "main" else scol + "[" + tag + "] " + C["r"]
         lblw = 0 if tag == "main" else len(tag) + 3
-        pfx = {"text": "", "tool": "> ", "res": "    -> ", "done": "=== "}[kind]
+        pfx = {"text": "", "think": "~ ", "tool": "> ", "res": "    -> ", "done": "=== "}[kind]
         budget = max(8, cols - lblw - len(pfx) - 1)
         body.append(label + kind_col[kind] + pfx + txt[:budget] + C["r"])
     sys.stdout.write("\033[H\033[J" + "\n".join(head) + "\n" + "\n".join(body))
