@@ -13,7 +13,7 @@
 #   bash scripts/run_evo_jarvislabs.sh smoke         # DRY RUN: bench x3 (noise) + gate sanity, no agent
 #   bash scripts/run_evo_jarvislabs.sh clocks        # lock GPU clocks on all GPUs (cuts benchmark noise)
 #   bash scripts/run_evo_jarvislabs.sh run           # launch headless agent: /evo:discover then /evo:optimize
-#   bash scripts/run_evo_jarvislabs.sh dashboard     # bridge dashboard 127.0.0.1:8080 -> 0.0.0.0:8090 (containers)
+#   bash scripts/run_evo_jarvislabs.sh dashboard     # publish a PUBLIC dashboard URL via cloudflared (anyone can watch)
 set -euo pipefail
 
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -150,12 +150,23 @@ INNER
 }
 
 dashboard() {
-  # Container path: bridge the dashboard to a JL-exposed port. On a VM (SSH-only),
-  # use an SSH local forward from your machine instead: ssh -L 8080:127.0.0.1:8080 ...
-  command -v socat >/dev/null || sudo apt-get install -y -qq socat
-  pkill -f 'TCP-LISTEN:8090' 2>/dev/null || true
-  socat TCP-LISTEN:8090,fork,reuseaddr TCP:127.0.0.1:8080 &
-  echo "bridged dashboard to 0.0.0.0:8090"
+  # The evo dashboard binds 127.0.0.1, and JarvisLabs VMs firewall inbound ports,
+  # so http://<public-ip>:port never works. Publish a public URL via an OUTBOUND
+  # cloudflared quick tunnel -- anyone with the link can watch, no key needed.
+  # (Key holders can instead: ssh -i <key> -N -L 8080:127.0.0.1:8080 ubuntu@<ip>)
+  mkdir -p "$HOME/.local/bin"
+  cloudflared --version >/dev/null 2>&1 || {
+    curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+      -o "$HOME/.local/bin/cloudflared" && chmod +x "$HOME/.local/bin/cloudflared"; }
+  tmux kill-session -t cf 2>/dev/null || true
+  tmux new -d -s cf "$HOME/.local/bin/cloudflared tunnel --url http://localhost:8080 --no-autoupdate > $WORK/cf.log 2>&1"
+  printf "public dashboard URL: "
+  for _ in $(seq 1 20); do
+    u=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$WORK/cf.log" 2>/dev/null | head -1)
+    [ -n "$u" ] && { echo "$u"; return; }
+    sleep 3
+  done
+  echo "(not ready; check $WORK/cf.log)"
 }
 
 cmd="${1:-bootstrap}"; shift || true
