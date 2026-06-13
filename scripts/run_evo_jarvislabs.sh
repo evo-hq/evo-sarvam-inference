@@ -8,7 +8,7 @@
 #
 # Usage (on the box, after: cp .env.example .env && edit .env):
 #   bash scripts/run_evo_jarvislabs.sh bootstrap   # one-time: venv + vLLM + weights + harness
-#   bash scripts/run_evo_jarvislabs.sh evo-setup    # install evo CLI + Claude Code plugin (workflow driver)
+#   bash scripts/run_evo_jarvislabs.sh evo-setup    # install Claude Code + evo CLI + plugin (workflow driver) + auth check
 #   bash scripts/run_evo_jarvislabs.sh reference     # capture baseline_gen.json (gate anchor) on the unmodified build
 #   bash scripts/run_evo_jarvislabs.sh smoke         # DRY RUN: bench x3 (noise) + gate sanity, no agent
 #   bash scripts/run_evo_jarvislabs.sh clocks        # lock GPU clocks on all GPUs (cuts benchmark noise)
@@ -37,7 +37,7 @@ pyvenv(){ . "$VENV/bin/activate"; }
 bootstrap() {
   echo "== 1. system deps (bare VM has no python3-venv) =="
   sudo apt-get update -qq
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3.10-venv python3-pip git rsync util-linux tmux
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3.10-venv python3-pip git rsync util-linux tmux curl
 
   echo "== 2. venv + base pip =="
   [ -d "$VENV" ] || python3 -m venv "$VENV"
@@ -62,16 +62,29 @@ bootstrap() {
 }
 
 evo-setup() {
-  # Install the evo CLI + the Claude Code plugin (carries the workflow/meta optimize
-  # driver). --force repopulates the plugin cache; a stale cache silently drops it.
+  # Install the agent (Claude Code), the evo CLI, and the evo Claude Code plugin
+  # (carries the workflow/meta optimize driver), then smoke-test auth.
   pyvenv
+  echo "== Claude Code (the agent) =="
+  command -v claude >/dev/null || curl -fsSL https://claude.ai/install.sh | bash
+  echo "claude: $(claude --version 2>&1 | head -1)"
+
+  echo "== evo CLI (uv tool -> ~/.local/bin) =="
   [ -d "$WORK/evo" ] || git clone -q --branch "$EVO_REF" "$EVO_REPO" "$WORK/evo"
   ( cd "$WORK/evo" && git fetch -q origin && git reset -q --hard "origin/$EVO_REF" )
   pip install -q -U uv
   ( cd "$WORK/evo" && uv tool install --force --editable ./plugins/evo )
+  echo "evo: $(evo --version)"
+
+  echo "== evo Claude Code plugin (workflow driver) =="
   evo install claude-code --from-path "$WORK/evo" || true
-  evo update claude-code --from-path "$WORK/evo" --force
-  echo "evo + plugin installed. verify: evo --version"
+  evo update claude-code --from-path "$WORK/evo" --force || true
+
+  echo "== auth smoke (validates CLAUDE_CODE_OAUTH_TOKEN) =="
+  ANTHROPIC_API_KEY="" IS_SANDBOX=1 timeout 150 claude --print \
+    --model "${CLAUDE_MODEL:-claude-opus-4-8}" --dangerously-skip-permissions \
+    "Reply with exactly: READY" \
+    || echo "AUTH CHECK FAILED -- fix CLAUDE_CODE_OAUTH_TOKEN before run"
 }
 
 reference() {
@@ -107,17 +120,32 @@ clocks() {
 }
 
 run() {
-  pyvenv
   : "${CLAUDE_CODE_OAUTH_TOKEN:?set CLAUDE_CODE_OAUTH_TOKEN in .env}"
   : "${CLAUDE_MODEL:=claude-opus-4-8}"
   : "${CLAUDE_CODE_EFFORT_LEVEL:=max}"
   echo "== launch headless evo agent (model=$CLAUDE_MODEL effort=$CLAUDE_CODE_EFFORT_LEVEL; discover -> optimize) =="
-  export ANTHROPIC_API_KEY="" CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CODE_EFFORT_LEVEL
-  export IS_SANDBOX=1                       # headless --dangerously-skip-permissions no-ops without this in containers
-  export SARVAM_NUM_GPUS VLLM_BASE VENV SARVAM_MODEL_PATH SARVAM_QUANT SARVAM_MAX_MODEL_LEN HF_HOME
   mkdir -p "$HARNESS_DIR/runs"
-  tmux new -d -s sarvam \
-    "cd '$VLLM_BASE' && claude --print --model '$CLAUDE_MODEL' --effort '$CLAUDE_CODE_EFFORT_LEVEL' --dangerously-skip-permissions < '$HARNESS_DIR/evo/run_prompt.md' 2>&1 | tee '$HARNESS_DIR/runs/run_console.log'"
+  # tmux does NOT reliably inherit the launching shell's exported env, so the
+  # agent's environment (PATH for claude/evo, OAuth, venv, IS_SANDBOX) is set
+  # inside a self-contained inner runner. Path vars expand now; runtime vars
+  # (\$HOME, \$CLAUDE_MODEL, \$?) resolve inside the runner after sourcing .env.
+  cat > "$WORK/agent_run.sh" <<INNER
+#!/usr/bin/env bash
+cd "$HARNESS_DIR"
+export PATH="\$HOME/.local/bin:\$PATH"
+set -a; . ./.env; set +a
+export ANTHROPIC_API_KEY=""
+export IS_SANDBOX=1
+: "\${CLAUDE_MODEL:=claude-opus-4-8}"
+: "\${CLAUDE_CODE_EFFORT_LEVEL:=max}"
+source "$VENV/bin/activate"
+cd "$VLLM_BASE"
+claude --print --model "\$CLAUDE_MODEL" --effort "\$CLAUDE_CODE_EFFORT_LEVEL" --dangerously-skip-permissions < "$HARNESS_DIR/evo/run_prompt.md"
+echo "RUN_EXIT=\$?"
+INNER
+  chmod +x "$WORK/agent_run.sh"
+  tmux kill-session -t sarvam 2>/dev/null || true
+  tmux new -d -s sarvam "bash $WORK/agent_run.sh > $HARNESS_DIR/runs/run_console.log 2>&1"
   echo "launched in tmux 'sarvam'. tail: tmux attach -t sarvam | console: runs/run_console.log"
 }
 
