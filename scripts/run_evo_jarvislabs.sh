@@ -140,7 +140,7 @@ export IS_SANDBOX=1
 : "\${CLAUDE_CODE_EFFORT_LEVEL:=max}"
 source "$VENV/bin/activate"
 cd "$VLLM_BASE"
-claude --print --model "\$CLAUDE_MODEL" --effort "\$CLAUDE_CODE_EFFORT_LEVEL" --dangerously-skip-permissions < "$HARNESS_DIR/evo/run_prompt.md"
+claude --print --output-format stream-json --verbose --model "\$CLAUDE_MODEL" --effort "\$CLAUDE_CODE_EFFORT_LEVEL" --dangerously-skip-permissions < "$HARNESS_DIR/evo/run_prompt.md"
 echo "RUN_EXIT=\$?"
 INNER
   chmod +x "$WORK/agent_run.sh"
