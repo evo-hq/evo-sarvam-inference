@@ -31,6 +31,7 @@ WORK="${WORK:-/home/ubuntu}"
 : "${SARVAM_NUM_GPUS:=4}"
 export HF_HOME="${HF_HOME:-$WORK/hf}"
 export HF_HUB_ENABLE_HF_TRANSFER=1
+export PATH="$HOME/.local/bin:$PATH"     # uv tool installs the evo CLI here; not on PATH in non-login shells
 pyvenv(){ . "$VENV/bin/activate"; }
 
 bootstrap() {
