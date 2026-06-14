@@ -7,11 +7,13 @@ hints: state the objective and the harness contract, not the kernel tricks to tr
 ## CRITICAL — headless execution rules (read first)
 You are running HEADLESS, as ONE long-lived turn. If you end the turn, the run can DIE.
 So:
-- Run EVERY benchmark, gate, build, and long operation in the **FOREGROUND** and block
-  on it in-line. NEVER launch work as a background task / background Bash / `&` and then
-  "wait for a completion notification" — in headless mode that notification will NOT
-  wake you; your turn ends and the run stops. If something takes minutes, run it in
-  the foreground and wait for it to return.
+- Long operations (benchmarks, gates, builds) may run in the background OR foreground —
+  either is fine. The one hard rule: you must **block on them synchronously within the
+  same turn**. To block on a background job, use **`evo wait`** (a foreground command
+  that waits on a process / gpu-active / log-growth / experiments condition and returns
+  when done; `evo wait --help`). NEVER end your turn expecting a background task's
+  "completion notification" to resume you — in headless mode that will NOT wake you and
+  the run stops.
 - As soon as `evo init` has run, arm evo's keep-going so the loop survives turn
   boundaries: `evo autonomous on`, and `evo config set default-orchestrator prose`.
 - Drive the whole loop yourself, continuously. Do not stop until the optimize budget is
