@@ -1,54 +1,43 @@
-# Run prompt — Sarvam-30B inference-speed evo run
+# Run prompt — Sarvam-30B inference-speed (discover-built benchmark, prose, 1x GPU)
 
-Handed to the headless agent on the box (`claude --print --dangerously-skip-permissions`).
-The agent drives the evo skills; we do not hand-author `evo init`/`evo new`/`evo run`.
-Keep this free of technique hints: state the objective and the rails, not the
-kernel tricks to try. The whole point is that the loop discovers those.
+Handed to the headless agent on the box (`claude --print`). Working directory is the
+vLLM clone (checked out at the SarvamMoE PR). Keep this free of optimization-technique
+hints: state the objective and the harness contract, not the kernel tricks to try.
 
----
+OBJECTIVE: make Sarvam-30B inference **faster** on this vLLM build, with model accuracy
+held within tolerance. Higher speed is better. You decide what "faster" means (which
+phase / workload / metric best captures it) — it is not pre-decided.
 
-You are optimizing inference speed for the Sarvam-30B MoE model served on vLLM.
-The codebase is this vLLM clone (checked out at the SarvamMoE PR). Your working
-directory is the vLLM repo root.
-
-OBJECTIVE: maximize decode throughput (output tokens/sec) for Sarvam-30B, with
-accuracy held within tolerance. Higher score is better.
-
-The benchmark and the accuracy gate are ALREADY BUILT. Do not redesign or weaken
-them, and do not edit the model weights or the harness:
-
-- Benchmark: `bash {worktree}/evo_harness/bench/run_bench.sh {target} {worktree}`
-  Score = geomean of median decode tok/s across fixed workload shapes. MAX metric.
-- Gate: `bash {worktree}/evo_harness/gate/run_gate.sh {target} {worktree}`
-  Fails (exit non-zero) if greedy top-1 agreement or chosen-token logprob drift
-  vs the captured baseline exceeds tolerance. This is the accuracy rail.
-
-Steps:
+The benchmark and the gate are NOT pre-built. You design and write them yourself.
 
 1. Run `/evo:discover`. During discover:
-   - Explore the SarvamMoE model executor and the fused-MoE / attention path so
-     you understand what is editable. The optimization target is
-     `vllm/model_executor/layers/fused_moe/fused_moe.py`; you may edit any code in
-     the worktree, but never the benchmark, the gate, or the weights.
-   - Wire `evo init` to the EXACT benchmark and gate commands above, metric=max.
-   - Confirm the baseline reference (`evo_harness/reference/baseline_gen.json`)
-     exists; it is captured before this run on the unmodified build.
-   - Run the baseline experiment (exp_0000) and commit it.
-   - In `project.md`, document the resource profile (one H100 per experiment,
-     TP=1, FP8) and the gaming risks specific to this run: (a) GPU-timing noise
-     being committed as improvement, (b) a kernel that is faster because it is
-     subtly wrong slipping through a too-loose gate. Note how the harness guards
-     each (median-of-N + locked clocks; strict top-1/logprob tolerance).
+   - Explore the SarvamMoE serving path and decide WHAT to measure and HOW to measure
+     it reliably. Read `evo_harness/references/benchmark-contract.md` for the contract
+     your benchmark + gate must satisfy.
+   - **Write your own benchmark script and your own accuracy gate** (follow the
+     discover skill's benchmark-construction guidance). Run every measurement through
+     `evo_harness/gpu_locked.sh` (the harness's exclusive-GPU lock).
+   - **Reproducibility is the hard requirement.** A prior run failed because its
+     benchmark was too noisy (warm/cold bias, cross-experiment GPU contention, a
+     single-run anchor on a high-variance shape) — it committed a noise high and
+     discarded ~10 genuine wins. Your benchmark MUST produce scores that reproduce
+     run-to-run: fixed workload, warmup, median-of-N, one measurement at a time (the
+     lock), and a stable anchor. Prove it: baseline 3x, spread tighter than the wins
+     you're chasing, before trusting any delta.
+   - Wire `evo init` to your benchmark (the metric) and `evo gate add` to your gate,
+     both invoked via `gpu_locked.sh`. Run and commit the baseline. Document in
+     `project.md`.
+   - You may edit any code in the worktree to optimize, but NEVER edit the benchmark,
+     the gate, the weights, or the harness after discover. If the gate looks wrong,
+     stop and report — do not weaken it.
 
-2. Before optimizing, run `evo config set default-orchestrator workflow` so the
-   loop runs under the workflow driver (the concurrent meta/analyst observes the
-   run, not the prose loop). `default-orchestrator` is project config recreated by
-   discover, so it must be set HERE, after discover.
+2. Set the orchestrator to PROSE (not the workflow driver):
+   `evo config set default-orchestrator prose`.
 
-3. Then run `/evo:optimize` with `subagents=4` (width = number of GPUs; each
-   experiment leases one GPU). Drive the loop: branch from the frontier, let
-   subagents form their own kernel hypotheses, keep what passes the gate AND
-   improves throughput, discard the rest.
+3. Run `/evo:optimize` with `subagents=3`. The box has ONE GPU; `gpu_locked.sh`
+   serializes benchmark/gate access, so the 3 subagents reason and edit in parallel
+   but measure one at a time (clean, no contention) — this is the optimize skill's
+   exclusive-GPU pattern. Drive the loop: frontier selection, verifier pre/post,
+   annotation discipline; keep what passes the gate AND improves the metric.
 
-Do not touch the model weights, the benchmark, or the gate at any point. If you
-believe the gate is wrong, stop and report rather than weakening it.
+Never touch the weights, the benchmark, or the gate during optimize.

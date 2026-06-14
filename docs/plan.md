@@ -1,5 +1,24 @@
 # Design + open items
 
+## Run-1 post-mortem (why we redesigned)
+
+Run 1 used a **hardcoded** decode benchmark (geomean of median decode tok/s) on **4x H100**
+with the **workflow** driver. It committed exp_0008 at +4.58% and then had to prune it. Root
+cause was the benchmark, not the kernel:
+- **Warm/cold bias** — exp_0008's 7278 was measured warm (hot caches/clocks from its own prior
+  attempt); the same code cold reads ~7256.
+- **Cross-experiment GPU contention** — 4 experiments running at once perturbed each other's
+  timing and allocator state (one child even flipped ~53% of tokens *only* under contention).
+- **Single-run anchor on a 17%-noisy shape** — committing on one lucky `long_context` run made
+  7278 a +5.8% noise high, against which ~10 children that genuinely beat baseline were
+  mislabeled "regressions" and discarded.
+
+The fix (this redesign): (1) **discover writes its own benchmark** to `references/benchmark-contract.md`,
+with reproducibility as a hard, self-verified requirement (median-of-N, baseline-3x spread check);
+(2) **1 GPU + exclusive lock** (`gpu_locked.sh`) so only one measurement runs at a time — no
+contention; (3) **prose** orchestrator. The sections below describe the original hardcoded design
+and are kept for the infra reasoning (the `.so`-sharing trick, the lock) that still applies.
+
 ## Objective
 
 Maximize Sarvam-30B decode throughput on vLLM, accuracy held within tolerance.

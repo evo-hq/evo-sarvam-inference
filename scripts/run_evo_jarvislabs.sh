@@ -7,12 +7,10 @@
 # evo init.
 #
 # Usage (on the box, after: cp .env.example .env && edit .env):
-#   bash scripts/run_evo_jarvislabs.sh bootstrap   # one-time: venv + vLLM + weights + harness
-#   bash scripts/run_evo_jarvislabs.sh evo-setup    # install Claude Code + evo CLI + plugin (workflow driver) + auth check
-#   bash scripts/run_evo_jarvislabs.sh reference     # capture baseline_gen.json (gate anchor) on the unmodified build
-#   bash scripts/run_evo_jarvislabs.sh smoke         # DRY RUN: bench x3 (noise) + gate sanity, no agent
-#   bash scripts/run_evo_jarvislabs.sh clocks        # lock GPU clocks on all GPUs (cuts benchmark noise)
-#   bash scripts/run_evo_jarvislabs.sh run           # launch headless agent: /evo:discover then /evo:optimize
+#   bash scripts/run_evo_jarvislabs.sh bootstrap   # one-time: venv + vLLM + weights + harness infra
+#   bash scripts/run_evo_jarvislabs.sh evo-setup    # install Claude Code + evo CLI + plugin + auth check
+#   bash scripts/run_evo_jarvislabs.sh clocks        # lock GPU clocks (cuts benchmark noise)
+#   bash scripts/run_evo_jarvislabs.sh run           # launch headless agent: /evo:discover (builds its own benchmark) -> prose /evo:optimize
 #   bash scripts/run_evo_jarvislabs.sh notify        # always-on Telegram/WhatsApp alert on each new best (tmux, reads .env)
 #   bash scripts/run_evo_jarvislabs.sh dashboard     # publish a PUBLIC dashboard URL via cloudflared (anyone can watch)
 set -euo pipefail
@@ -29,7 +27,7 @@ WORK="${WORK:-/home/ubuntu}"
 : "${EVO_REPO:=https://github.com/evo-hq/evo.git}"
 : "${EVO_REF:=main}"
 : "${SARVAM_MODEL_PATH:=sarvamai/sarvam-30b}"
-: "${SARVAM_NUM_GPUS:=4}"
+: "${SARVAM_NUM_GPUS:=1}"   # 1x H100; the gpu_locked.sh lease serializes parallel subagents' measurements
 export HF_HOME="${HF_HOME:-$WORK/hf}"
 export HF_HUB_ENABLE_HF_TRANSFER=1
 export PATH="$HOME/.local/bin:$PATH"     # uv tool installs the evo CLI here; not on PATH in non-login shells
@@ -56,10 +54,13 @@ bootstrap() {
   echo "== 4. weights =="
   hf download "$SARVAM_MODEL_PATH"
 
-  echo "== 5. drop harness into the vLLM clone + commit (worktrees inherit it) =="
-  rsync -a "$HARNESS_DIR/bench" "$HARNESS_DIR/gate" "$HARNESS_DIR/reference" "$VLLM_BASE/evo_harness/"
-  ( cd "$VLLM_BASE" && git add -A && git commit -qm "add evo harness" || true )
-  echo "bootstrap done. next: evo-setup, then reference, then run"
+  echo "== 5. drop harness INFRA into the vLLM clone + commit (worktrees inherit it) =="
+  # Only the GPU-lock wrapper + the contract. discover writes the benchmark + gate itself.
+  mkdir -p "$VLLM_BASE/evo_harness"
+  rsync -a "$HARNESS_DIR/scripts/gpu_locked.sh" "$HARNESS_DIR/references" "$VLLM_BASE/evo_harness/"
+  chmod +x "$VLLM_BASE/evo_harness/gpu_locked.sh"
+  ( cd "$VLLM_BASE" && git add -A && git commit -qm "add evo harness infra (gpu_locked + contract)" || true )
+  echo "bootstrap done. next: evo-setup, then clocks, then run"
 }
 
 evo-setup() {
@@ -86,28 +87,6 @@ evo-setup() {
     --model "${CLAUDE_MODEL:-claude-opus-4-8}" --dangerously-skip-permissions \
     "Reply with exactly: READY" \
     || echo "AUTH CHECK FAILED -- fix CLAUDE_CODE_OAUTH_TOKEN before run"
-}
-
-reference() {
-  pyvenv
-  echo "== capture baseline reference (UNMODIFIED build, GPU 0) =="
-  CUDA_VISIBLE_DEVICES=0 python "$VLLM_BASE/evo_harness/gate/capture_reference.py"
-  ( cd "$VLLM_BASE" && git add -f evo_harness/reference/baseline_gen.json \
-      && git commit -qm "capture baseline reference" )
-  echo "committed baseline_gen.json. next: clocks, then run"
-}
-
-smoke() {
-  pyvenv
-  cd "$VLLM_BASE"
-  for i in 1 2 3; do
-    echo "== bench run $i =="
-    EVO_RESULT_PATH="/tmp/smoke_$i.json" CUDA_VISIBLE_DEVICES=0 \
-      python evo_harness/bench/bench_decode.py --target evo_harness/smoke --worktree "$VLLM_BASE"
-  done
-  echo "== gate (baseline vs baseline, expect PASS) =="
-  CUDA_VISIBLE_DEVICES=0 python evo_harness/gate/verify_quality.py --target evo_harness/smoke --worktree "$VLLM_BASE" \
-    && echo "GATE PASS" || echo "GATE FAIL (unexpected on baseline)"
 }
 
 clocks() {
@@ -216,11 +195,9 @@ cmd="${1:-bootstrap}"; shift || true
 case "$cmd" in
   bootstrap) bootstrap "$@" ;;
   evo-setup) evo-setup "$@" ;;
-  reference) reference "$@" ;;
-  smoke)     smoke "$@" ;;
   clocks)    clocks "$@" ;;
   run)       run "$@" ;;
   notify)    notify "$@" ;;
   dashboard) dashboard "$@" ;;
-  *) echo "usage: $0 {bootstrap|evo-setup|reference|smoke|clocks|run|notify|dashboard}" >&2; exit 1 ;;
+  *) echo "usage: $0 {bootstrap|evo-setup|clocks|run|notify|dashboard}" >&2; exit 1 ;;
 esac
