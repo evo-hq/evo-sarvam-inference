@@ -10,8 +10,8 @@ So:
 - Run EVERY benchmark, gate, build, and long operation in the **FOREGROUND** and block
   on it in-line. NEVER launch work as a background task / background Bash / `&` and then
   "wait for a completion notification" — in headless mode that notification will NOT
-  wake you; your turn ends and the run is dead. If something takes minutes, run it in
-  the foreground and wait for it to return. (A previous run died exactly this way.)
+  wake you; your turn ends and the run stops. If something takes minutes, run it in
+  the foreground and wait for it to return.
 - As soon as `evo init` has run, arm evo's keep-going so the loop survives turn
   boundaries: `evo autonomous on`, and `evo config set default-orchestrator prose`.
 - Drive the whole loop yourself, continuously. Do not stop until the optimize budget is
@@ -30,10 +30,11 @@ The benchmark and the gate are NOT pre-built. You design and write them yourself
      reliably. Read `evo_harness/references/benchmark-contract.md`.
    - Write your own benchmark + gate. Run every measurement in the FOREGROUND through
      `evo_harness/gpu_locked.sh`.
-   - Reproducibility is the hard requirement (the prior run died on benchmark noise:
-     warm/cold bias, cross-experiment contention, single-run anchor on a high-variance
-     shape). Fixed workload, warmup, median-of-N, one measurement at a time (the lock),
-     stable anchor. Prove it: baseline 3x, spread tighter than the wins you chase.
+   - Reproducibility is the hard requirement: benchmark noise (warm/cold bias,
+     cross-experiment GPU contention, single-run anchors on high-variance shapes)
+     silently corrupts the search. Fixed workload, warmup, median-of-N, one measurement
+     at a time (the lock), stable anchor. Prove it: baseline 3x, spread tighter than the
+     wins you chase.
    - Wire `evo init` to your benchmark and `evo gate add` to your gate (both via
      `gpu_locked.sh`). Run and commit the baseline. Document in `project.md`.
    - Never edit the benchmark, gate, weights, or harness after discover. If the gate
